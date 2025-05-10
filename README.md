@@ -54,6 +54,7 @@ You can combine paranoid mode with a custom command:
 ## Authors
 
 fijimunkii (original)
+
 marco-liberale (fork)
 
 ## Changes
