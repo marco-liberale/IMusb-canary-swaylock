@@ -53,9 +53,9 @@ You can combine paranoid mode with a custom command:
 
 ## Authors
 
-fijimunkii (original)
+@fijimunkii (original)
 
-marco-liberale (fork)
+@marco-liberale (fork)
 
 ## Changes
 (See full changelist in commits)
