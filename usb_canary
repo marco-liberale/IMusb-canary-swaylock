@@ -1,38 +1,70 @@
 #!/bin/bash
-# usb canary by fijimunkii
-# monitor usb devices while your computer is locked
-# get notified when someone plugs in or removes a usb device
-# NOTE: optional arg to always alert
-# NOTE: optional environment variables for sms:
-#   TWILIO_FROM
-#   TWILIO_TO
-#   TWILIO_SID
-#   TWILIO_AUTH
-# TODO: posix diff
+# AI generated comments, Human-made code
+# USB Canary for swaylock with command execution
+# Monitors USB devices and detects when they are plugged in or removed.
+# Can execute a custom command or display alerts when changes are detected.
+#
+# Features:
+#   - Works on macOS and Linux (supports swaylock on Linux for lock detection).
+#   - Detects USB device changes and alerts the user.
+#   - Allows execution of a custom command when a USB event is detected.
+#
+# Usage:
+#   -p | --paranoid   : Always alert on USB events, even if the system is not locked.
+#   -c | --command    : Specify a custom command to run when a USB event is detected.
+#
+# Examples:
+#   Run in paranoid mode and log USB events to a file:
+#     ./usb-canary.sh -p -c "echo 'USB event detected at $(date)' >> usb-events.log"
+#
+#   Send a desktop notification when a USB device is plugged in:
+#     ./usb-canary.sh -c "notify-send 'USB Event' 'A USB device was plugged in or removed'"
 
 set -u
 set -o pipefail
 
-[ -z ${1+x} ] && PARANOID=0 || PARANOID=1
+# Default values
+PARANOID=0
+USER_COMMAND=""
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -p|--paranoid)
+      PARANOID=1
+      shift
+      ;;
+    -c|--command)
+      USER_COMMAND="$2"
+      shift 2
+      ;;
+    *)
+      echo "Usage: $0 [-p|--paranoid] [-c|--command <command>]"
+      exit 1
+      ;;
+  esac
+done
+
 HOSTNAME=$(hostname -s)
 
+# Function to handle alerts
+# Prints the alert message and runs the user-specified command (if provided)
 function alert {
   echo "$1"
-  [ -z ${TWILIO_FROM+x} ] || [ -z ${TWILIO_TO+x} ] || \
-  [ -z ${TWILIO_SID+x} ] || [ -z ${TWILIO_AUTH+x} ] || \
-  curl -X POST https://api.twilio.com/2010-04-01/Accounts/$TWILIO_SID/Messages.json \
-    --data-urlencode "Body=$1" \
-    --data-urlencode "From=$TWILIO_FROM" \
-    --data-urlencode "To=$TWILIO_TO" \
-    -u $TWILIO_SID:$TWILIO_AUTH
+  if [ -n "$USER_COMMAND" ]; then
+    eval "$USER_COMMAND"
+  fi
 }
 
+# Function to handle script termination
+# Sends a final alert when the script exits
 function exit_canary {
   alert "EXIT from USB CANARY on $HOSTNAME"
   exit
 }
 trap exit_canary EXIT HUP INT TERM
 
+# Detect operating system
 OS=""
 case "$(uname -s)" in
    Darwin) OS='Mac' ;;
@@ -40,34 +72,29 @@ case "$(uname -s)" in
    *) echo 'Unsupported OS'; exit 1 ;;
 esac
 
+# Main monitoring loop
 while :
 do
-
   sleep 0.5s
   AWAY=0
   [ -z ${NEW_DEVICES+x} ] && DEVICES="" || DEVICES="$NEW_DEVICES"
 
   if [ $OS = 'Mac' ] ; then
+    # Get the list of connected USB devices on macOS
     NEW_DEVICES=$(ioreg -p IOUSB -w0 | sed 's/[^o]*o //; s/@.*$//' | grep -v '^Root.*')
-    # Idle for 1 minute
+    # Check if the system is idle or locked
     IDLETIME=$(ioreg -c IOHIDSystem | awk '/HIDIdleTime/ {print int($NF/1000000000); exit}')
     [ "$IDLETIME" -gt "60" ] && AWAY=1
-    # No graphics capabilities
     pmset -g systemstate | grep Graphics > /dev/null || AWAY=1
-    # Screensaver enabled
     pgrep -q ScreenSaverEngine > /dev/null && AWAY=1
   elif [ $OS = 'Linux' ] ; then
+    # Get the list of connected USB devices on Linux
     NEW_DEVICES=$(lsusb)
-    # Idle for 1 minute
-    command -v gnome-screensaver-command -q | grep -w -c inactive && AWAY=1
-    command -v xprintidle && [ "$(xprintidle)" -gt "60000" ] && AWAY=1
-    command -v xscreensaver-command && xscreensaver-command -time && AWAY=1
-    # Screensaver enabled
-    qdbus org.freedesktop.ScreenSaver /ScreenSaver org.freedesktop.ScreenSaver.GetActive && AWAY=1
-    qdbus org.kde.screensaver /ScreenSaver org.freedesktop.ScreenSaver.GetActive && AWAY=1
-    qdbus org.gnome.ScreenSaver /ScreenSaver org.gnome.ScreenSaver.GetActive && AWAY=1
+    # Check if swaylock is active (screen is locked)
+    pgrep -x swaylock > /dev/null && AWAY=1
   fi
 
+  # Compare the current and previous device lists
   if [ "$DEVICES" != "" ] && { [ "$PARANOID" -gt "0" ] || [ "$AWAY" -gt "0" ]; }; then
     DIFF=$(diff -U 0 <(echo "$DEVICES") <(echo "$NEW_DEVICES") 2>/dev/null | sed '1,3d')
     if [ "$?" != "0" ] && [ "$DIFF" != "" ] ; then
